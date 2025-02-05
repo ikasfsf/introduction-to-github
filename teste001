@@ -1,0 +1,100 @@
+#include <iostream>
+#include <string>
+#include <chrono>
+#include <thread>
+#include <curl/curl.h>
+
+// Libcurl callback to capture response (minimal example)
+size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* output) {
+    size_t total_size = size * nmemb;
+    output->append((char*)contents, total_size);
+    return total_size;
+}
+
+// Perform the search
+void perform_search() {
+    CURL* curl = curl_easy_init();
+    if (curl) {
+        // Calculate dates: today and one year ago (format DD/MM/YYYY)
+        auto now = std::chrono::system_clock::now();
+        time_t now_time = std::chrono::system_clock::to_time_t(now);
+        tm* local_time = localtime(&now_time); // Assumes system is in UTC-3
+
+        // Format end date as today
+        char end_date[11];
+        strftime(end_date, sizeof(end_date), "%d/%m/%Y", local_time);
+
+        // Calculate start date (1 year ago)
+        tm start_tm = *local_time;
+        start_tm.tm_year -= 1;
+        mktime(&start_tm); // Normalize the date
+        char start_date[11];
+        strftime(start_date, sizeof(start_date), "%d/%m/%Y", &start_tm);
+
+        // URL-encode the search term and dates
+        std::string term = "joao carlos da silva bonato";
+        CURLcode res;
+        char* encoded_term = curl_easy_escape(curl, term.c_str(), term.length());
+        char* encoded_start = curl_easy_escape(curl, start_date, strlen(start_date));
+        char* encoded_end = curl_easy_escape(curl, end_date, strlen(end_date));
+
+        // Construct URL with parameters (replace with actual parameters from the website)
+        std::string url = "https://doe.sp.gov.br/busca-avancada?termo=" + 
+                          std::string(encoded_term) + 
+                          "&data_inicio=" + std::string(encoded_start) +
+                          "&data_fim=" + std::string(encoded_end);
+
+        // Configure libcurl
+        std::string response;
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+
+        // Execute the request
+        res = curl_easy_perform(curl);
+        if (res != CURLE_OK) {
+            std::cerr << "curl_easy_perform() failed: " << curl_easy_strerror(res) << std::endl;
+        } else {
+            std::cout << "Search performed at " << end_date << std::endl;
+        }
+
+        // Cleanup
+        curl_free(encoded_term);
+        curl_free(encoded_start);
+        curl_free(encoded_end);
+        curl_easy_cleanup(curl);
+    }
+}
+
+// Wait until next 18:00 (UTC-3)
+void wait_until_target_time() {
+    using namespace std::chrono;
+    system_clock::time_point now = system_clock::now();
+    time_t now_time = system_clock::to_time_t(now);
+    tm* local_tm = localtime(&now_time); // Ensure system timezone is UTC-3
+
+    // Target time: 18:00 today or tomorrow
+    tm target_tm = *local_tm;
+    target_tm.tm_hour = 18;
+    target_tm.tm_min = 0;
+    target_tm.tm_sec = 0;
+
+    time_t target_time = mktime(&target_tm);
+    if (target_time <= now_time) {
+        target_tm.tm_mday += 1; // Schedule for tomorrow
+        target_time = mktime(&target_tm);
+    }
+
+    // Sleep until target time
+    auto duration = seconds(target_time - now_time);
+    std::this_thread::sleep_for(duration);
+}
+
+int main() {
+    while (true) {
+        wait_until_target_time();
+        perform_search();
+    }
+    return 0;
+}
